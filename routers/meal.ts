@@ -13,6 +13,18 @@ const storage = multer.memoryStorage();
 
 const upload = multer({ storage });
 
+router.get("/all-meals/:userId", async (req, res) => {
+  const supabase = await supabaseClient(req.headers.authorization as string);
+  const userId = req.params.userId;
+
+  const { data } = await supabase
+    .from("Meals")
+    .select("*")
+    .eq("userId", userId);
+
+  res.json(data);
+});
+
 router.post("/add-meal", upload.array("images", 3), async (req, res) => {
   const supabase = await supabaseClient(req.headers.authorization as string);
 
@@ -20,21 +32,28 @@ router.post("/add-meal", upload.array("images", 3), async (req, res) => {
   // Need to have this check to please typescript
   if (Array.isArray(req.files)) {
     for (const file of req.files) {
-      const { data, error } = await supabase.storage
+      const { error } = await supabase.storage
         .from("Meals")
         .upload(
-          `/${req.body.userId}/${file.fieldname}_${Date.now()}_${
+          `${req.body.userId}/${file.fieldname}_${Date.now()}_${
             file.originalname
           }`,
           file.buffer
         );
 
-      imageStorageUrls.push(data?.path as string);
+      // Get public url
+      let { data: storagedImageData } = await supabase.storage
+        .from("Meals")
+        .getPublicUrl(
+          `/${req.body.userId}/${file.fieldname}_${Date.now()}_${
+            file.originalname
+          }`
+        );
+      imageStorageUrls.push(storagedImageData.publicUrl);
 
       if (error) {
-        console.log(error);
         res.status(500).json({
-          message: "there was an error",
+          message: "Error in storing meal images",
         });
         return;
       }
@@ -45,18 +64,19 @@ router.post("/add-meal", upload.array("images", 3), async (req, res) => {
 
   const { data, error } = await supabase.from("Meals").insert({
     type,
-    time: date,
-    user_id: userId,
+    datetime: date,
+    userId,
     notes,
     imageUrls: imageStorageUrls,
   });
 
-  console.log(data);
-  console.log(error);
+  if (error) {
+    res.status(500).json({
+      message: "Error in storing meal data",
+    });
+  }
 
-  res.status(200).json({
-    message: "things worked",
-  });
+  res.status(200).json(data);
 });
 
 export { router as mealRouter };
