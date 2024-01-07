@@ -2,6 +2,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import multer from "multer";
+import moment from "moment";
 dotenv.config();
 
 // Relative Dependencies
@@ -16,11 +17,22 @@ const upload = multer({ storage });
 router.get("/all-meals/:userId", async (req, res) => {
   const supabase = await supabaseClient(req.headers.authorization as string);
   const userId = req.params.userId;
+  const datetimeAsString = req.query.datetime as string;
 
-  const { data } = await supabase
-    .from("Meals")
-    .select("*")
-    .eq("userId", userId);
+  if (!datetimeAsString) {
+    res.status(500).send({
+      message: "No datetime provided as query string",
+    });
+    return;
+  }
+
+  const datetimeAsDate = moment(datetimeAsString).toDate();
+
+  const { data } = await supabase.rpc("get_meals_by_year_month", {
+    year: datetimeAsDate.getFullYear(),
+    month: datetimeAsDate.getMonth() + 1,
+    userid: userId,
+  });
 
   res.json(data);
 });

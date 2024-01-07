@@ -44,6 +44,38 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
+      get_meals_by_year_month:
+        | {
+            Args: {
+              year: number
+              month: number
+            }
+            Returns: {
+              createdAt: string
+              datetime: string
+              id: number
+              imageUrls: string[] | null
+              notes: string | null
+              type: string | null
+              userId: string
+            }[]
+          }
+        | {
+            Args: {
+              year: number
+              month: number
+              userid: string
+            }
+            Returns: {
+              createdAt: string
+              datetime: string
+              id: number
+              imageUrls: string[] | null
+              notes: string | null
+              type: string | null
+              userId: string
+            }[]
+          }
       requesting_user_id: {
         Args: Record<PropertyKey, never>
         Returns: string
