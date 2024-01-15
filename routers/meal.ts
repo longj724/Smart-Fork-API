@@ -144,4 +144,34 @@ router.post("/add-meal", upload.array("images", 3), async (req, res) => {
   res.status(200).json(data);
 });
 
+router.post("/update-meal", async (req, res) => {
+  const supabase = await supabaseClient(req.headers.authorization as string);
+
+  const { mealId, type, notes, datetime } = req.body;
+
+  const { data: updatedMeal, error: mealUpdateError } = await supabase
+    .from("Meals")
+    .update({ notes: notes, type: type, datetime: datetime })
+    .eq("id", mealId)
+    .select("*");
+
+  if (mealUpdateError) {
+    res.status(500).json({
+      message: "Error in updating meal data",
+    });
+  }
+
+  // TODO: Update Embeddings
+  // const { data: embeddingsUpdate, error: embeddingsUpdateError } =
+  //   await supabase
+  //     .from("Meal_Embeddings")
+  //     .update({ content: notes })
+  //     .eq("meal_id", mealId);
+
+  res.json({
+    message: "Update Successful",
+    updateMeal: updatedMeal,
+  });
+});
+
 export { router as mealRouter };
