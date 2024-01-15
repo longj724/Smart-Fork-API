@@ -5,6 +5,7 @@ import bodyParser from "body-parser";
 
 // Relative Dependencies
 import { mealRouter } from "./routers/meal";
+import { insightsRouter } from "./routers/insights";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,6 +18,7 @@ app.get("/", (req, res) => {
 });
 
 app.use("/meals", mealRouter);
+app.use("/insights", insightsRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

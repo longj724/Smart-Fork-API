@@ -7,6 +7,9 @@ dotenv.config();
 
 // Relative Dependencies
 import { supabaseClient } from "../utils/supabaseClient";
+import { summarizeMealAsText } from "../utils/summarizeMealAsText";
+import { MealData } from "../types/types";
+import OpenAI from "../utils/openAIClient";
 
 const router = express.Router();
 
@@ -41,6 +44,7 @@ router.post("/add-meal", upload.array("images", 3), async (req, res) => {
   const supabase = await supabaseClient(req.headers.authorization as string);
 
   let imageStorageUrls: string[] = [];
+  let imageBase64Strings: string[] = [];
   // Need to have this check to please typescript
   if (Array.isArray(req.files)) {
     for (const file of req.files) {
@@ -53,7 +57,9 @@ router.post("/add-meal", upload.array("images", 3), async (req, res) => {
           file.buffer
         );
 
-      // Get public url
+      imageBase64Strings.push(file.buffer.toString("base64"));
+
+      // Get public url for frontend
       let { data: storagedImageData } = await supabase.storage
         .from("Meals")
         .getPublicUrl(
@@ -74,13 +80,60 @@ router.post("/add-meal", upload.array("images", 3), async (req, res) => {
 
   const { type, notes, date, userId } = req.body;
 
-  const { data, error } = await supabase.from("Meals").insert({
-    type,
-    datetime: date,
-    userId,
-    notes,
-    imageUrls: imageStorageUrls,
-  });
+  const { data, error } = await supabase
+    .from("Meals")
+    .insert({
+      type,
+      datetime: date,
+      userId,
+      notes,
+      imageUrls: imageStorageUrls,
+    })
+    .select("*");
+
+  if (data) {
+    const meal = data[0];
+    // Assumption made that we are only adding one meal at a time
+    const mealData: MealData = {
+      createdAt: meal.createdAt,
+      datetime: meal.datetime,
+      id: meal.id,
+      imageBase64Strings: imageBase64Strings,
+      notes: meal.notes,
+      type: meal.type,
+      userId: meal.userId,
+    };
+
+    const summarizedMealText = await summarizeMealAsText(mealData);
+
+    const embeddingResponse = await OpenAI.embeddings.create({
+      model: "text-embedding-ada-002",
+      input: summarizedMealText,
+    });
+
+    const [responseData] = embeddingResponse.data;
+
+    if (!embeddingResponse.data) {
+      console.log("Could not embed meal");
+    }
+
+    // Put embedding in db
+    const { data: supabaseEmbedding, error: embeddingError } = await supabase
+      .from("Meal_Embeddings")
+      .insert({
+        user_id: meal.userId,
+        meal_id: meal.id,
+        // Can't pass in embedding type - https://github.com/supabase/postgres-meta/issues/578
+        embedding: JSON.stringify(responseData.embedding),
+        token_count: embeddingResponse.usage.total_tokens,
+        content: summarizedMealText,
+      })
+      .select("*");
+
+    if (embeddingError) {
+      console.log("embedding error is", embeddingError);
+    }
+  }
 
   if (error) {
     res.status(500).json({
