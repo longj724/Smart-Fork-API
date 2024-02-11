@@ -6,7 +6,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export interface Database {
+export type Database = {
   public: {
     Tables: {
       Meal_Embeddings: {
@@ -71,6 +71,30 @@ export interface Database {
           notes?: string | null
           type?: string | null
           userId?: string
+        }
+        Relationships: []
+      }
+      Messages: {
+        Row: {
+          created_at: string
+          id: number
+          messages: string
+          token_count: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          messages: string
+          token_count: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          messages?: string
+          token_count?: number
+          user_id?: string
         }
         Relationships: []
       }
