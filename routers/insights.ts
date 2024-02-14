@@ -1,27 +1,21 @@
 // External Dependencies
 import express from 'express';
 import {
-  createParser,
-  ParsedEvent,
-  ReconnectInterval,
-} from 'eventsource-parser';
+  Run,
+  RunSubmitToolOutputsParams,
+} from 'openai/resources/beta/threads/runs/runs';
+import { AssistantCreateParams } from 'openai/resources/beta/assistants/assistants';
+import { MessageContentText } from 'openai/resources/beta/threads/messages/messages';
 import dotenv from 'dotenv';
 dotenv.config();
 
 // Relative Dependencies
 import { supabaseClient } from '../utils/supabaseClient';
 import OpenAI from '../utils/openAIClient';
-
-const systemPrompt = `
-    You are an assistant who helps people meet their health goals.
-    You will be given data regarding the food consumed by an individual.
-    The data will be in json format and will be a list of "Meal" objects,
-    The meal objects will have a "content" field that will contain information
-    about a given meal that they ate.
-
-    Here is the individual's meal data: 
-    {mealData}
-  `;
+import {
+  ChatCompletionSystemMessageParam,
+  ChatCompletionUserMessageParam,
+} from 'openai/resources';
 
 const systemPromptGoalAddOn = `
 You will also be given a health goal that 
@@ -33,7 +27,9 @@ The individual will ask you health-related questions. If applicable use their go
 and meal data to guide your response.
 `;
 
-const getRecentMealData = async (userId: string, authorization: string) => {
+const ASSISTANT_ID = 'asst_NsYEypkkcqm8KG9JuaU7MDLN';
+
+const getRecentMeals = async (userId: string, authorization: string) => {
   const supabase = await supabaseClient(authorization as string);
   const currentDate = new Date();
   const thirtyDaysAgo = new Date(
@@ -44,7 +40,7 @@ const getRecentMealData = async (userId: string, authorization: string) => {
     .from('Meals')
     .select('*')
     .eq('userId', userId)
-    .gte('created_at', thirtyDaysAgo.toISOString());
+    .gte('createdAt', thirtyDaysAgo.toISOString());
 
   return { recentMealData, error };
 };
@@ -55,33 +51,21 @@ router.get('/messages/:userId', async (req, res) => {
   const supabase = await supabaseClient(req.headers.authorization as string);
   const userId = req.params.userId;
 
-  const { recentMealData } = await getRecentMealData(
-    userId,
-    req.headers.authorization as string
-  );
-
   const { data: messageHistory } = await supabase
     .from('Messages')
     .select('*')
     .eq('user_id', userId);
 
   if (messageHistory?.length === 0 || !messageHistory) {
-    // Need to create an intro message
-    const systemPromptWithMealData = systemPrompt.replace(
-      '{mealData}',
-      JSON.stringify(recentMealData)
-    );
+    const thread = await OpenAI.beta.threads.create();
 
-    const { data: messageInsertResponse, error } = await supabase
+    const { data: messageInsertResponse } = await supabase
       .from('Messages')
       .insert({
         user_id: userId,
         token_count: 0,
+        thread_id: thread.id,
         messages: JSON.stringify([
-          {
-            role: 'system',
-            content: JSON.stringify(systemPromptWithMealData),
-          },
           {
             role: 'system',
             content:
@@ -98,6 +82,114 @@ router.get('/messages/:userId', async (req, res) => {
     });
   } else {
     res.json({ messages: messageHistory[0].messages });
+  }
+});
+
+router.post('/send-message', async (req, res) => {
+  const supabase = await supabaseClient(req.headers.authorization as string);
+  const { message, userId } = req.body;
+
+  const { data: messageHistory } = await supabase
+    .from('Messages')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (messageHistory && messageHistory[0]?.thread_id) {
+    const threadId = messageHistory[0]?.thread_id;
+
+    console.log(
+      'all messsages are',
+      await OpenAI.beta.threads.messages.list(threadId)
+    );
+
+    await OpenAI.beta.threads.messages.create(threadId, {
+      role: 'user',
+      content: message,
+    });
+
+    const run = await OpenAI.beta.threads.runs.create(threadId, {
+      assistant_id: ASSISTANT_ID,
+    });
+
+    let runStatus = await OpenAI.beta.threads.runs.retrieve(threadId, run.id);
+
+    while (runStatus.status !== 'completed') {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      runStatus = await OpenAI.beta.threads.runs.retrieve(threadId, run.id);
+
+      if (runStatus.status === 'requires_action') {
+        const toolCalls = (runStatus?.required_action as Run.RequiredAction)
+          .submit_tool_outputs.tool_calls;
+        const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = [];
+
+        for (const toolCall of toolCalls) {
+          const output = await getRecentMeals(
+            userId,
+            req.headers.authorization as string
+          );
+
+          toolOutputs.push({
+            tool_call_id: toolCall.id,
+            output: JSON.stringify(output),
+          });
+
+          await OpenAI.beta.threads.runs.submitToolOutputs(threadId, run.id, {
+            tool_outputs: toolOutputs,
+          });
+          continue;
+        }
+      }
+
+      if (['failed', 'cancelled', 'expired'].includes(runStatus.status)) {
+        res.status(500).json({
+          message: 'Error in sending message',
+        });
+      }
+    }
+
+    const messages = await OpenAI.beta.threads.messages.list(threadId);
+    const lastMessageForRun = messages.data
+      .filter(
+        (message) => message.run_id === run.id && message.role === 'assistant'
+      )
+      .pop();
+
+    if (lastMessageForRun) {
+      let existingMessages: Array<
+        ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam
+      > = JSON.parse(messageHistory[0].messages);
+
+      const userQuestionMessage:
+        | ChatCompletionSystemMessageParam
+        | ChatCompletionUserMessageParam = {
+        role: 'user',
+        content: message,
+      };
+      existingMessages.push(userQuestionMessage);
+
+      const assistantResponseMessage:
+        | ChatCompletionSystemMessageParam
+        | ChatCompletionUserMessageParam = {
+        role: 'system',
+        content: (lastMessageForRun.content[0] as MessageContentText).text
+          .value,
+      };
+      existingMessages.push(assistantResponseMessage);
+
+      await supabase
+        .from('Messages')
+        .update({
+          messages: JSON.stringify(existingMessages),
+        })
+        .eq('user_id', userId)
+        .eq('thread_id', threadId);
+
+      res.json({ message: assistantResponseMessage });
+    } else if (!['failed', 'cancelled', 'expired'].includes(runStatus.status)) {
+      res.status(500).json({
+        message: 'Error in sending message',
+      });
+    }
   }
 });
 

@@ -9,6 +9,24 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      Assistants: {
+        Row: {
+          assistant_config: string
+          assistant_id: string
+          created_at: string
+        }
+        Insert: {
+          assistant_config: string
+          assistant_id: string
+          created_at?: string
+        }
+        Update: {
+          assistant_config?: string
+          assistant_id?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       Meal_Embeddings: {
         Row: {
           content: string
@@ -79,6 +97,7 @@ export type Database = {
           created_at: string
           id: number
           messages: string
+          thread_id: string | null
           token_count: number
           user_id: string
         }
@@ -86,6 +105,7 @@ export type Database = {
           created_at?: string
           id?: number
           messages: string
+          thread_id?: string | null
           token_count: number
           user_id: string
         }
@@ -93,6 +113,7 @@ export type Database = {
           created_at?: string
           id?: number
           messages?: string
+          thread_id?: string | null
           token_count?: number
           user_id?: string
         }
