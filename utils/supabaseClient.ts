@@ -1,5 +1,8 @@
-import { createClient } from "@supabase/supabase-js";
-import { Database } from "../types/supabase";
+// External Dependencies
+import { createClient } from '@supabase/supabase-js';
+
+// Relative Dependencies
+import { Database } from '../types/supabase';
 
 export const supabaseClient = async (supabaseToken: string) => {
   const supabase = createClient<Database>(

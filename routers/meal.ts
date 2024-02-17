@@ -77,7 +77,6 @@ router.post('/add-meal', upload.array('images', 3), async (req, res) => {
         res.status(500).json({
           message: 'Error in storing meal images',
         });
-        return;
       }
     }
   }
@@ -108,20 +107,22 @@ router.post('/add-meal', upload.array('images', 3), async (req, res) => {
       userId: meal.userId,
     };
 
-    const summarizedMealText = await summarizeMealAsText(mealData);
+    // Excluding for now. This looked at the image and added notes about the meal
+    // In most cases I don't think this adds much value
+    // const summarizedMealText = await summarizeMealAsText(mealData);
 
     const embeddingResponse = await OpenAI.embeddings.create({
       model: 'text-embedding-ada-002',
-      input: summarizedMealText,
+      input: notes,
     });
 
     const [responseData] = embeddingResponse.data;
 
     if (!embeddingResponse.data) {
-      console.log('Could not embed meal');
+      console.error('Could not embed meal');
     }
 
-    const { data: supabaseEmbedding, error: embeddingError } = await supabase
+    const { error: embeddingError } = await supabase
       .from('Meal_Embeddings')
       .insert({
         user_id: meal.userId,
@@ -129,7 +130,7 @@ router.post('/add-meal', upload.array('images', 3), async (req, res) => {
         // Can't pass in embedding type - https://github.com/supabase/postgres-meta/issues/578
         embedding: JSON.stringify(responseData.embedding),
         token_count: embeddingResponse.usage.total_tokens,
-        content: summarizedMealText,
+        content: notes,
       })
       .select('*');
 
@@ -144,7 +145,7 @@ router.post('/add-meal', upload.array('images', 3), async (req, res) => {
     });
   }
 
-  res.status(200).json(data);
+  res.json(data);
 });
 
 router.post('/update-meal', async (req, res) => {

@@ -4,7 +4,6 @@ import {
   Run,
   RunSubmitToolOutputsParams,
 } from 'openai/resources/beta/threads/runs/runs';
-import { AssistantCreateParams } from 'openai/resources/beta/assistants/assistants';
 import { MessageContentText } from 'openai/resources/beta/threads/messages/messages';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -96,11 +95,6 @@ router.post('/send-message', async (req, res) => {
 
   if (messageHistory && messageHistory[0]?.thread_id) {
     const threadId = messageHistory[0]?.thread_id;
-
-    console.log(
-      'all messsages are',
-      await OpenAI.beta.threads.messages.list(threadId)
-    );
 
     await OpenAI.beta.threads.messages.create(threadId, {
       role: 'user',
