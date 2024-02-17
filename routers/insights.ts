@@ -15,6 +15,8 @@ import {
   ChatCompletionSystemMessageParam,
   ChatCompletionUserMessageParam,
 } from 'openai/resources';
+import { validate } from '../middleware/middleware';
+import { sendMessageSchema } from '../middleware/schemas';
 
 const systemPromptGoalAddOn = `
 You will also be given a health goal that 
@@ -46,14 +48,16 @@ const getRecentMeals = async (userId: string, authorization: string) => {
 
 const router = express.Router();
 
-router.get('/messages/:userId', async (req, res) => {
+router.get('/messages/:userId', async (req, res, next) => {
   const supabase = await supabaseClient(req.headers.authorization as string);
   const userId = req.params.userId;
 
-  const { data: messageHistory } = await supabase
+  const { data: messageHistory, error } = await supabase
     .from('Messages')
     .select('*')
     .eq('user_id', userId);
+
+  if (error) return next(new Error('Unable to retrieve messages'));
 
   if (messageHistory?.length === 0 || !messageHistory) {
     const thread = await OpenAI.beta.threads.create();
@@ -84,107 +88,112 @@ router.get('/messages/:userId', async (req, res) => {
   }
 });
 
-router.post('/send-message', async (req, res) => {
-  const supabase = await supabaseClient(req.headers.authorization as string);
-  const { message, userId } = req.body;
+router.post(
+  '/send-message',
+  validate(sendMessageSchema),
+  async (req, res, next) => {
+    const supabase = await supabaseClient(req.headers.authorization as string);
+    const { message, userId } = req.body;
 
-  const { data: messageHistory } = await supabase
-    .from('Messages')
-    .select('*')
-    .eq('user_id', userId);
+    const { data: messageHistory, error } = await supabase
+      .from('Messages')
+      .select('*')
+      .eq('user_id', userId);
 
-  if (messageHistory && messageHistory[0]?.thread_id) {
-    const threadId = messageHistory[0]?.thread_id;
+    if (error) return next(error);
 
-    await OpenAI.beta.threads.messages.create(threadId, {
-      role: 'user',
-      content: message,
-    });
+    if (messageHistory && messageHistory[0]?.thread_id) {
+      const threadId = messageHistory[0]?.thread_id;
 
-    const run = await OpenAI.beta.threads.runs.create(threadId, {
-      assistant_id: ASSISTANT_ID,
-    });
+      await OpenAI.beta.threads.messages.create(threadId, {
+        role: 'user',
+        content: message,
+      });
 
-    let runStatus = await OpenAI.beta.threads.runs.retrieve(threadId, run.id);
+      const run = await OpenAI.beta.threads.runs.create(threadId, {
+        assistant_id: ASSISTANT_ID,
+      });
 
-    while (runStatus.status !== 'completed') {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      runStatus = await OpenAI.beta.threads.runs.retrieve(threadId, run.id);
+      let runStatus = await OpenAI.beta.threads.runs.retrieve(threadId, run.id);
 
-      if (runStatus.status === 'requires_action') {
-        const toolCalls = (runStatus?.required_action as Run.RequiredAction)
-          .submit_tool_outputs.tool_calls;
-        const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = [];
+      while (runStatus.status !== 'completed') {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        runStatus = await OpenAI.beta.threads.runs.retrieve(threadId, run.id);
 
-        for (const toolCall of toolCalls) {
-          const output = await getRecentMeals(
-            userId,
-            req.headers.authorization as string
-          );
+        if (runStatus.status === 'requires_action') {
+          const toolCalls = (runStatus?.required_action as Run.RequiredAction)
+            .submit_tool_outputs.tool_calls;
+          const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = [];
 
-          toolOutputs.push({
-            tool_call_id: toolCall.id,
-            output: JSON.stringify(output),
-          });
+          for (const toolCall of toolCalls) {
+            const output = await getRecentMeals(
+              userId,
+              req.headers.authorization as string
+            );
 
-          await OpenAI.beta.threads.runs.submitToolOutputs(threadId, run.id, {
-            tool_outputs: toolOutputs,
-          });
-          continue;
+            toolOutputs.push({
+              tool_call_id: toolCall.id,
+              output: JSON.stringify(output),
+            });
+
+            await OpenAI.beta.threads.runs.submitToolOutputs(threadId, run.id, {
+              tool_outputs: toolOutputs,
+            });
+            continue;
+          }
+        }
+
+        if (['failed', 'cancelled', 'expired'].includes(runStatus.status)) {
+          next(new Error('Unable to send message'));
         }
       }
 
-      if (['failed', 'cancelled', 'expired'].includes(runStatus.status)) {
-        res.status(500).json({
-          message: 'Error in sending message',
-        });
+      const messages = await OpenAI.beta.threads.messages.list(threadId);
+      const lastMessageForRun = messages.data
+        .filter(
+          (message) => message.run_id === run.id && message.role === 'assistant'
+        )
+        .pop();
+
+      if (lastMessageForRun) {
+        let existingMessages: Array<
+          ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam
+        > = JSON.parse(messageHistory[0].messages);
+
+        const userQuestionMessage:
+          | ChatCompletionSystemMessageParam
+          | ChatCompletionUserMessageParam = {
+          role: 'user',
+          content: message,
+        };
+        existingMessages.push(userQuestionMessage);
+
+        const assistantResponseMessage:
+          | ChatCompletionSystemMessageParam
+          | ChatCompletionUserMessageParam = {
+          role: 'system',
+          content: (lastMessageForRun.content[0] as MessageContentText).text
+            .value,
+        };
+        existingMessages.push(assistantResponseMessage);
+
+        const { error } = await supabase
+          .from('Messages')
+          .update({
+            messages: JSON.stringify(existingMessages),
+          })
+          .eq('user_id', userId)
+          .eq('thread_id', threadId);
+
+        if (error) next(new Error('Unable to send message'));
+        res.json({ message: assistantResponseMessage });
+      } else if (
+        !['failed', 'cancelled', 'expired'].includes(runStatus.status)
+      ) {
+        next(new Error('Unable to send message'));
       }
     }
-
-    const messages = await OpenAI.beta.threads.messages.list(threadId);
-    const lastMessageForRun = messages.data
-      .filter(
-        (message) => message.run_id === run.id && message.role === 'assistant'
-      )
-      .pop();
-
-    if (lastMessageForRun) {
-      let existingMessages: Array<
-        ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam
-      > = JSON.parse(messageHistory[0].messages);
-
-      const userQuestionMessage:
-        | ChatCompletionSystemMessageParam
-        | ChatCompletionUserMessageParam = {
-        role: 'user',
-        content: message,
-      };
-      existingMessages.push(userQuestionMessage);
-
-      const assistantResponseMessage:
-        | ChatCompletionSystemMessageParam
-        | ChatCompletionUserMessageParam = {
-        role: 'system',
-        content: (lastMessageForRun.content[0] as MessageContentText).text
-          .value,
-      };
-      existingMessages.push(assistantResponseMessage);
-
-      await supabase
-        .from('Messages')
-        .update({
-          messages: JSON.stringify(existingMessages),
-        })
-        .eq('user_id', userId)
-        .eq('thread_id', threadId);
-
-      res.json({ message: assistantResponseMessage });
-    } else if (!['failed', 'cancelled', 'expired'].includes(runStatus.status)) {
-      res.status(500).json({
-        message: 'Error in sending message',
-      });
-    }
   }
-});
+);
 
 export { router as insightsRouter };

@@ -13,6 +13,8 @@ import { supabaseClient } from '../utils/supabaseClient';
 import { summarizeMealAsText } from '../utils/summarizeMealAsText';
 import { MealData } from '../types/types';
 import OpenAI from '../utils/openAIClient';
+import { validate } from '../middleware/middleware';
+import { allMealsSchema, quickAddSchema } from '../middleware/schemas';
 
 const router = express.Router();
 
@@ -20,34 +22,38 @@ const storage = multer.memoryStorage();
 
 const upload = multer({ storage });
 
-router.get('/all-meals/:userId', async (req, res) => {
-  const supabase = await supabaseClient(req.headers.authorization as string);
-  const userId = req.params.userId;
-  const datetimeAsString = req.query.datetime as string;
+router.get(
+  '/all-meals/:userId',
+  validate(allMealsSchema),
+  async (req, res, next) => {
+    const supabase = await supabaseClient(req.headers.authorization as string);
+    const userId = req.params.userId;
+    const datetimeAsString = req.query.datetime as string;
 
-  if (!datetimeAsString) {
-    res.status(500).send({
-      message: 'No datetime provided as query string',
+    if (!datetimeAsString) {
+      next(new Error('No Datetime present'));
+    }
+
+    const datetimeAsDate = moment(datetimeAsString).toDate();
+
+    const { data, error } = await supabase.rpc('get_meals_by_year_month', {
+      year: datetimeAsDate.getFullYear(),
+      month: datetimeAsDate.getMonth() + 1,
+      userid: userId,
     });
-    return;
+
+    if (error) return next(error);
+
+    res.json(data);
   }
+);
 
-  const datetimeAsDate = moment(datetimeAsString).toDate();
-
-  const { data } = await supabase.rpc('get_meals_by_year_month', {
-    year: datetimeAsDate.getFullYear(),
-    month: datetimeAsDate.getMonth() + 1,
-    userid: userId,
-  });
-
-  res.json(data);
-});
-
-router.post('/add-meal', upload.array('images', 3), async (req, res) => {
+router.post('/add-meal', upload.array('images', 3), async (req, res, next) => {
   const supabase = await supabaseClient(req.headers.authorization as string);
 
   let imageStorageUrls: string[] = [];
   let imageBase64Strings: string[] = [];
+  const { type, notes, date, userId } = req.body;
 
   // Need to have this check to please typescript
   if (Array.isArray(req.files)) {
@@ -55,9 +61,7 @@ router.post('/add-meal', upload.array('images', 3), async (req, res) => {
       const { error } = await supabase.storage
         .from('Meals')
         .upload(
-          `${req.body.userId}/${file.fieldname}_${Date.now()}_${
-            file.originalname
-          }`,
+          `${userId}/${file.fieldname}_${Date.now()}_${file.originalname}`,
           file.buffer
         );
 
@@ -67,21 +71,13 @@ router.post('/add-meal', upload.array('images', 3), async (req, res) => {
       let { data: storagedImageData } = await supabase.storage
         .from('Meals')
         .getPublicUrl(
-          `/${req.body.userId}/${file.fieldname}_${Date.now()}_${
-            file.originalname
-          }`
+          `/${userId}/${file.fieldname}_${Date.now()}_${file.originalname}`
         );
       imageStorageUrls.push(storagedImageData.publicUrl);
 
-      if (error) {
-        res.status(500).json({
-          message: 'Error in storing meal images',
-        });
-      }
+      if (error) return next(error);
     }
   }
-
-  const { type, notes, date, userId } = req.body;
 
   const { data, error } = await supabase
     .from('Meals')
@@ -93,6 +89,8 @@ router.post('/add-meal', upload.array('images', 3), async (req, res) => {
       imageUrls: imageStorageUrls,
     })
     .select('*');
+
+  if (error) return next(error);
 
   if (data) {
     const meal = data[0];
@@ -134,15 +132,7 @@ router.post('/add-meal', upload.array('images', 3), async (req, res) => {
       })
       .select('*');
 
-    if (embeddingError) {
-      console.log('embedding error is', embeddingError);
-    }
-  }
-
-  if (error) {
-    res.status(500).json({
-      message: 'Error in storing meal data',
-    });
+    if (embeddingError) next(embeddingError);
   }
 
   res.json(data);
@@ -175,14 +165,15 @@ router.post('/update-meal', async (req, res) => {
 
   res.json({
     message: 'Update Successful',
-    updateMeal: updatedMeal,
+    updatedMeal: updatedMeal,
   });
 });
 
 router.post(
   '/quick-add',
+  validate(quickAddSchema),
   upload.single('audio-meal-note'),
-  async (req, res) => {
+  async (req, res, next) => {
     const supabase = await supabaseClient(req.headers.authorization as string);
 
     if (req.file) {
@@ -241,17 +232,11 @@ router.post(
         .select('*');
 
       if (error) {
-        res.status(500).json({
-          message: 'Error in storing meal data',
-        });
-      } else {
-        res.status(200).json(data);
+        return next(error);
       }
-      return;
+      return res.json(data);
     }
-    res.status(500).json({
-      message: 'No audio file present',
-    });
+    next(new Error('No audio file present'));
   }
 );
 
