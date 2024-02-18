@@ -2,7 +2,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import multer from 'multer';
-import moment from 'moment';
+import { DateTime } from 'luxon';
 import { Readable } from 'stream';
 import FormData from 'form-data';
 import axios from 'axios';
@@ -34,11 +34,11 @@ router.get(
       next(new Error('No Datetime present'));
     }
 
-    const datetimeAsDate = moment(datetimeAsString).toDate();
+    const datetimeAsDate = DateTime.fromISO(datetimeAsString);
 
     const { data, error } = await supabase.rpc('get_meals_by_year_month', {
-      year: datetimeAsDate.getFullYear(),
-      month: datetimeAsDate.getMonth() + 1,
+      year: datetimeAsDate.year,
+      month: datetimeAsDate.month,
       userid: userId,
     });
 
@@ -55,23 +55,29 @@ router.post('/add-meal', upload.array('images', 3), async (req, res, next) => {
   let imageBase64Strings: string[] = [];
   const { type, notes, date, userId } = req.body;
 
+  const datetimeAsDate = new Date(date);
+
   // Need to have this check to please typescript
   if (Array.isArray(req.files)) {
     for (const file of req.files) {
       const { error } = await supabase.storage
         .from('Meals')
         .upload(
-          `${userId}/${file.fieldname}_${Date.now()}_${file.originalname}`,
+          `${userId}/${file.fieldname}_${datetimeAsDate.toISOString()}_${
+            file.originalname
+          }`,
           file.buffer
         );
 
       imageBase64Strings.push(file.buffer.toString('base64'));
 
       // Get public url for frontend
-      let { data: storagedImageData } = await supabase.storage
+      let { data: storagedImageData } = supabase.storage
         .from('Meals')
         .getPublicUrl(
-          `/${userId}/${file.fieldname}_${Date.now()}_${file.originalname}`
+          `/${userId}/${file.fieldname}_${datetimeAsDate.toISOString()}_${
+            file.originalname
+          }`
         );
       imageStorageUrls.push(storagedImageData.publicUrl);
 
@@ -241,3 +247,6 @@ router.post(
 );
 
 export { router as mealRouter };
+
+// https://gcbdrhjwwalfnbuhbcxz.supabase.co/storage/v1/object/public/Meals/user_2aVAgYcFutLPOinsoS9kWoc6NB6/images_1704517488591_IMG_0007.jpg
+// https://gcbdrhjwwalfnbuhbcxz.supabase.co/storage/v1/object/public/Meals/user_2aVAgYcFutLPOinsoS9kWoc6NB6/images_1704517489098_IMG_0007.jpg
