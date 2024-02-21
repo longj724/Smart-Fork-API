@@ -6,6 +6,7 @@ import bodyParser from 'body-parser';
 // Relative Dependencies
 import { mealRouter } from './routers/meal';
 import { insightsRouter } from './routers/insights';
+import { workoutsRouter } from './routers/workouts';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,6 +16,7 @@ app.use(bodyParser.json());
 
 app.use('/meals', mealRouter);
 app.use('/insights', insightsRouter);
+app.use('/workouts', workoutsRouter);
 
 app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
   error.statusCode = error.statusCode || 500;

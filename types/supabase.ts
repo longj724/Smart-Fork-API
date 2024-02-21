@@ -9,6 +9,33 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      Access_Tokens: {
+        Row: {
+          access_token: string
+          athlete_id: number
+          created_at: string
+          expires_at: number
+          id: number
+          user_id: string
+        }
+        Insert: {
+          access_token: string
+          athlete_id: number
+          created_at?: string
+          expires_at: number
+          id?: number
+          user_id: string
+        }
+        Update: {
+          access_token?: string
+          athlete_id?: number
+          created_at?: string
+          expires_at?: number
+          id?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       Assistants: {
         Row: {
           assistant_config: string
@@ -115,6 +142,30 @@ export type Database = {
           messages?: string
           thread_id?: string | null
           token_count?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      Refresh_Tokens: {
+        Row: {
+          athlete_id: number
+          created_at: string
+          id: number
+          refresh_token: string
+          user_id: string
+        }
+        Insert: {
+          athlete_id: number
+          created_at?: string
+          id?: number
+          refresh_token: string
+          user_id: string
+        }
+        Update: {
+          athlete_id?: number
+          created_at?: string
+          id?: number
+          refresh_token?: string
           user_id?: string
         }
         Relationships: []
