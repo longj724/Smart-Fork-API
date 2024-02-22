@@ -64,10 +64,10 @@ router.get('/strava-activities/:userId', async (req, res, next) => {
       const currentTimestamp = Date.now() / 1000;
 
       if (currentTimestamp < expiresAt) {
-        const activitiesResponse = await getActivities(
+        const activitiesData = await getActivities(
           currentAccessTokenData[0].access_token
         );
-        return res.json({ userConnected: true, data: activitiesResponse.data });
+        return res.json({ userConnected: true, activityData: activitiesData });
       } else {
         // Get new refresh token
         const { data: oldRefreshTokenData, error } = await supabase
@@ -112,8 +112,8 @@ router.get('/strava-activities/:userId', async (req, res, next) => {
           })
           .eq('user_id', userId);
 
-        const activitiesResponse = await getActivities(newAccessToken);
-        return res.json({ userConnected: true, data: activitiesResponse.data });
+        const activitiesData = await getActivities(newAccessToken);
+        return res.json({ userConnected: true, activityData: activitiesData });
       }
     }
 
@@ -123,9 +123,19 @@ router.get('/strava-activities/:userId', async (req, res, next) => {
   }
 });
 
-const getActivities = async (accessToken: string) =>
-  await axios.get(
+const getActivities = async (accessToken: string) => {
+  const { data } = await axios.get(
     `https://www.strava.com/api/v3/athlete/activities?access_token=${accessToken}`
   );
+
+  const condensedData = data.map((activity: any) => ({
+    startDateLocal: activity.start_date_local,
+    name: activity.name,
+    sportType: activity.sport_type,
+    movingTime: activity.moving_time,
+    distance: activity.distance,
+  }));
+  return condensedData;
+};
 
 export { router as workoutsRouter };
