@@ -134,6 +134,7 @@ const getActivities = async (accessToken: string) => {
     sportType: activity.sport_type,
     movingTime: activity.moving_time,
     distance: activity.distance,
+    totalElevationGain: activity.total_elevation_gain,
   }));
   return condensedData;
 };
