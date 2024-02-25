@@ -5,6 +5,7 @@ import {
   RunSubmitToolOutputsParams,
 } from 'openai/resources/beta/threads/runs/runs';
 import { MessageContentText } from 'openai/resources/beta/threads/messages/messages';
+import axios from 'axios';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -28,7 +29,8 @@ The individual will ask you health-related questions. If applicable use their go
 and meal data to guide your response.
 `;
 
-const ASSISTANT_ID = 'asst_NsYEypkkcqm8KG9JuaU7MDLN';
+// const ASSISTANT_ID = 'asst_NsYEypkkcqm8KG9JuaU7MDLN';
+const ASSISTANT_ID = 'asst_BpkT10b8JIuRzdcNDKnLs7Y3';
 
 const getRecentMeals = async (userId: string, authorization: string) => {
   const supabase = await supabaseClient(authorization as string);
@@ -44,6 +46,21 @@ const getRecentMeals = async (userId: string, authorization: string) => {
     .gte('createdAt', thirtyDaysAgo.toISOString());
 
   return { recentMealData, error };
+};
+
+const getRecentStravaActivities = async (
+  userId: string,
+  accessToken: string
+) => {
+  const { data } = await axios.get(
+    `http://localhost:3000/workouts/strava-activities/${userId}`,
+    {
+      headers: {
+        Authorization: accessToken,
+      },
+    }
+  );
+  return data;
 };
 
 const router = express.Router();
@@ -126,10 +143,21 @@ router.post(
           const toolOutputs: RunSubmitToolOutputsParams.ToolOutput[] = [];
 
           for (const toolCall of toolCalls) {
-            const output = await getRecentMeals(
-              userId,
-              req.headers.authorization as string
-            );
+            const functionName = toolCall.function.name;
+
+            let output;
+
+            if (functionName === 'getRecentMeals') {
+              output = await getRecentMeals(
+                userId,
+                req.headers.authorization as string
+              );
+            } else {
+              output = await getRecentStravaActivities(
+                userId,
+                req.headers.authorization as string
+              );
+            }
 
             toolOutputs.push({
               tool_call_id: toolCall.id,
