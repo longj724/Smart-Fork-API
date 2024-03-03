@@ -96,6 +96,7 @@ export type Database = {
           id: number
           imageUrls: string[] | null
           notes: string | null
+          rating: number | null
           type: string | null
           userId: string
         }
@@ -105,6 +106,7 @@ export type Database = {
           id?: number
           imageUrls?: string[] | null
           notes?: string | null
+          rating?: number | null
           type?: string | null
           userId: string
         }
@@ -114,6 +116,7 @@ export type Database = {
           id?: number
           imageUrls?: string[] | null
           notes?: string | null
+          rating?: number | null
           type?: string | null
           userId?: string
         }
@@ -187,6 +190,7 @@ export type Database = {
               id: number
               imageUrls: string[] | null
               notes: string | null
+              rating: number | null
               type: string | null
               userId: string
             }[]
@@ -203,6 +207,7 @@ export type Database = {
               id: number
               imageUrls: string[] | null
               notes: string | null
+              rating: number | null
               type: string | null
               userId: string
             }[]

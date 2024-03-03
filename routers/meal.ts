@@ -53,7 +53,7 @@ router.post('/add-meal', upload.array('images', 3), async (req, res, next) => {
 
   let imageStorageUrls: string[] = [];
   let imageBase64Strings: string[] = [];
-  const { type, notes, date, userId } = req.body;
+  const { type, notes, date, rating, userId } = req.body;
 
   const datetimeAsDate = new Date(date);
 
@@ -88,11 +88,12 @@ router.post('/add-meal', upload.array('images', 3), async (req, res, next) => {
   const { data, error } = await supabase
     .from('Meals')
     .insert({
-      type,
       datetime: date,
-      userId,
-      notes,
       imageUrls: imageStorageUrls,
+      notes,
+      rating,
+      type,
+      userId,
     })
     .select('*');
 
